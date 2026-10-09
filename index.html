@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FloodLens AI — Explainable Urban Flood Impact &amp; Priority Mapping</title>
+<meta name="description" content="Decision-support demo mapping urban flood risk, public facilities and road damage. Not an operational flood-warning system." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%230b2f4e'/><path d='M16 6c4 6 7 9 7 13a7 7 0 0 1-14 0c0-4 3-7 7-13z' fill='%232bb5a3'/></svg>" />
+<link rel="preconnect" href="https://unpkg.com" />
+<link rel="preconnect" href="https://a.tile.openstreetmap.org" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="sidebar" aria-label="Primary navigation">
+    <div class="sidebar-brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="15" fill="#123a5e"/><path d="M16 5c4.4 6.4 7.5 9.6 7.5 13.6a7.5 7.5 0 0 1-15 0C8.5 14.6 11.6 11.4 16 5z" fill="#2bb5a3"/></svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">FloodLens <span class="ai">AI</span></span>
+        <span class="brand-sub">Flood impact &amp; priority mapping</span>
+      </div>
+    </div>
+
+    <nav class="side-nav" aria-label="Sections">
+      <button class="nav-item" data-view="overview" type="button">
+        <span class="nav-ico" aria-hidden="true">▦</span><span class="nav-label">Overview</span>
+      </button>
+      <button class="nav-item" data-view="map" type="button">
+        <span class="nav-ico" aria-hidden="true">◈</span><span class="nav-label">Flood Risk Map</span>
+      </button>
+      <button class="nav-item" data-view="reports" type="button">
+        <span class="nav-ico" aria-hidden="true">⚑</span><span class="nav-label">Road Damage Reports</span>
+        <span class="nav-count" id="nav-report-count">0</span>
+      </button>
+      <button class="nav-item" data-view="priority" type="button">
+        <span class="nav-ico" aria-hidden="true">≡</span><span class="nav-label">Inspection Priorities</span>
+      </button>
+      <button class="nav-item" data-view="dataquality" type="button">
+        <span class="nav-ico" aria-hidden="true">◐</span><span class="nav-label">Data Quality &amp; Methodology</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="sdg-mini" title="Supports UN SDG 11 Target 11.5 and SDG 13 Target 13.1">
+        <span class="sdg-chip">SDG 11.5</span><span class="sdg-chip">SDG 13.1</span>
+      </div>
+      <button id="btn-disclaimer" class="side-link" type="button">Disclaimer &amp; limits</button>
+      <p class="sidebar-note">Decision-support prototype. <strong>Not</strong> an operational flood-warning system.</p>
+    </div>
+  </aside>
+
+  <!-- ===================== MAIN ===================== -->
+  <div class="main-col">
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="menu-btn" id="menu-btn" type="button" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+        <div>
+          <h1 class="view-title" id="view-title">Overview</h1>
+          <p class="view-sub" id="view-sub">Situation summary for the selected study area and rainfall scenario.</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="sim-indicator" id="sim-indicator" title="Whether the displayed risk data is simulated or backed by real map data">
+          <i class="sim-dot" id="sim-dot"></i><span id="sim-text">Checking data source…</span>
+        </span>
+        <button id="btn-submit-cta" class="primary-btn" type="button">＋ Submit report</button>
+      </div>
+    </header>
+
+    <div class="command-bar" role="region" aria-label="Scenario and data controls">
+      <div class="cmd">
+        <label for="city-select">Study area</label>
+        <select id="city-select">
+          <option value="bengaluru">Bengaluru, India (sample district)</option>
+          <option value="mumbai">Mumbai, India (sample district)</option>
+          <option value="chennai">Chennai, India (sample district)</option>
+        </select>
+      </div>
+      <div class="cmd">
+        <label for="rain-select">Rainfall scenario</label>
+        <select id="rain-select"></select>
+      </div>
+      <div class="cmd cmd-grow">
+        <span class="cmd-inline-label">Data source</span>
+        <span id="data-source-pill" class="source-pill" aria-live="polite">loading…</span>
+      </div>
+      <div class="cmd-actions">
+        <button id="btn-refresh-data" class="ghost-btn on-light" type="button">↻ Reload real data</button>
+        <button id="btn-fit" class="ghost-btn on-light" type="button">Fit map</button>
+      </div>
+    </div>
+
+    <main class="content" id="content">
+
+      <!-- ============ VIEW 1 — OVERVIEW ============ -->
+      <section class="view" id="view-overview" aria-labelledby="ov-h" hidden>
+        <h2 id="ov-h" class="sr-only">Overview</h2>
+        <div class="summary-cards" id="summary-cards"></div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Risk distribution</h3><p class="muted">Locations per risk category (current scenario)</p></div>
+            <div class="bar-chart" id="risk-chart" aria-label="Bar chart of locations per risk category"></div>
+            <div class="stat-split" id="risk-split"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Exposure summary</h3><p class="muted">Public facilities and reports in medium/high-risk zones</p></div>
+            <div class="bar-chart" id="facility-chart" aria-label="Bar chart of facility exposure by type"></div>
+            <div class="stat-split" id="exposure-split"></div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head row-between">
+              <div><h3>Recent damage reports</h3><p class="muted">Newest first</p></div>
+              <button class="text-btn" data-view="reports" type="button">View all →</button>
+            </div>
+            <div class="mini-table" id="ov-reports"></div>
+          </div>
+          <div class="card">
+            <div class="card-head row-between">
+              <div><h3>High-priority locations</h3><p class="muted">Top ranked by inspection priority</p></div>
+              <button class="text-btn" data-view="priority" type="button">View all →</button>
+            </div>
+            <div class="mini-table" id="ov-priority"></div>
+          </div>
+        </div>
+
+        <div class="card cta-card">
+          <div>
+            <h3>Spotted road damage?</h3>
+            <p class="muted">Upload a photo, confirm the details and submit for review. Verified reports appear on the map and feed the inspection-priority ranking.</p>
+          </div>
+          <button class="primary-btn" data-view="reports" id="ov-cta" type="button">Submit a road-damage report</button>
+        </div>
+      </section>
+
+      <!-- ============ VIEW 2 — FLOOD RISK MAP ============ -->
+      <section class="view" id="view-map" hidden>
+        <div class="card map-toolbar">
+          <div class="layer-toggles" role="group" aria-label="Map layers">
+            <label class="chk"><input type="checkbox" id="layer-zones" checked> Risk zones</label>
+            <label class="chk"><input type="checkbox" id="layer-facilities" checked> Public facilities</label>
+            <label class="chk"><input type="checkbox" id="layer-roads" checked> Roads</label>
+            <label class="chk"><input type="checkbox" id="layer-reports" checked> Damage reports</label>
+          </div>
+          <div class="layer-toggles" role="group" aria-label="Facility filter">
+            <span class="toggle-label">Facilities:</span>
+            <label class="chk"><input type="checkbox" class="fac-filter" value="hospital" checked> Hospitals</label>
+            <label class="chk"><input type="checkbox" class="fac-filter" value="school" checked> Schools</label>
+            <label class="chk"><input type="checkbox" class="fac-filter" value="shelter" checked> Shelters</label>
+            <label class="chk"><input type="checkbox" class="fac-filter" value="other" checked> Others</label>
+          </div>
+        </div>
+
+        <div class="map-layout">
+          <div class="card map-card">
+            <div id="map" class="map" role="application" aria-label="Interactive flood risk map">
+              <div class="map-loading" id="map-loading"><span class="spinner" aria-hidden="true"></span> Loading map…</div>
+            </div>
+            <div class="legend" id="legend" aria-label="Map legend"></div>
+          </div>
+
+          <aside class="card detail-card" id="detail-panel" aria-live="polite">
+            <p class="muted">Select a risk zone, facility or damage-report marker on the map, or a row in the tables, to see its details here.</p>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ============ VIEW 3 — ROAD DAMAGE REPORTS ============ -->
+      <section class="view" id="view-reports" hidden>
+        <div class="card">
+          <div class="card-head">
+            <h3>Road-damage reporting</h3>
+            <p class="muted">Capture a photo, review a clearly-labelled <strong>simulated</strong> AI severity assessment, then submit for review. Nothing here is a validated AI detection.</p>
+          </div>
+
+          <div class="damage-grid">
+            <form id="report-form" class="report-form" novalidate>
+              <fieldset>
+                <legend>1 · Photograph <span class="req">*</span></legend>
+                <div class="upload-box" id="upload-box">
+                  <input type="file" id="photo-input" accept="image/*" capture="environment" aria-label="Upload road-damage photograph" />
+                  <div id="drop-hint" class="drop-hint">
+                    <span class="upload-icon" aria-hidden="true">📷</span>
+                    <p><strong>Click to upload</strong> or drag a road-damage photo here</p>
+                    <p class="muted small">JPG/PNG · processed only in your browser · never sent to a server</p>
+                  </div>
+                  <img id="photo-preview" alt="Selected road-damage photograph preview" hidden />
+                </div>
+                <div class="row gap">
+                  <button type="button" id="btn-assess" class="ghost-btn on-light" disabled>Analyse image (demo AI)</button>
+                  <button type="button" id="btn-clear-photo" class="ghost-btn on-light" disabled>Clear photo</button>
+                </div>
+                <div id="ai-result" class="ai-result" aria-live="polite" hidden></div>
+              </fieldset>
+
+              <fieldset>
+                <legend>2 · Location</legend>
+                <div class="field">
+                  <label for="r-location">Location description <span class="req">*</span></label>
+                  <input id="r-location" type="text" placeholder="e.g. 4th Cross, near Ward 74 junction" required />
+                </div>
+                <div class="field">
+                  <label for="r-zone">Related flood-risk zone</label>
+                  <select id="r-zone"><option value="">— auto-detect from coordinates —</option></select>
+                </div>
+                <div class="field-row">
+                  <div class="field">
+                    <label for="r-lat">Latitude</label>
+                    <input id="r-lat" type="number" step="any" placeholder="12.9716" inputmode="decimal" />
+                  </div>
+                  <div class="field">
+                    <label for="r-lng">Longitude</label>
+                    <input id="r-lng" type="number" step="any" placeholder="77.5946" inputmode="decimal" />
+                  </div>
+                </div>
+                <div class="row gap">
+                  <button type="button" id="btn-gps" class="ghost-btn on-light">Use my GPS location</button>
+                  <button type="button" id="btn-pick" class="ghost-btn on-light">Pick on map</button>
+                </div>
+                <p class="muted small" id="gps-note">GPS is optional and only used when you grant permission. We never infer your location automatically.</p>
+              </fieldset>
+
+              <fieldset>
+                <legend>3 · Damage details</legend>
+                <div class="field">
+                  <label for="r-damage">Damage type <span class="req">*</span></label>
+                  <select id="r-damage" required>
+                    <option value="">Select damage type…</option>
+                    <option>Pothole</option>
+                    <option>Cracked road</option>
+                    <option>Damaged road surface</option>
+                    <option>Waterlogged road</option>
+                    <option>Possible flood-related road damage</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="r-severity">Severity</label>
+                  <select id="r-severity">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                  <small class="muted">You choose this manually; the demo assessment only pre-fills a suggestion.</small>
+                </div>
+                <div class="field">
+                  <label for="r-desc">Description</label>
+                  <textarea id="r-desc" rows="3" placeholder="Approximate size, spread, water depth, hazards…"></textarea>
+                </div>
+                <div class="field">
+                  <label for="r-when">Report date &amp; time</label>
+                  <input id="r-when" type="datetime-local" />
+                </div>
+                <div class="field">
+                  <label for="r-reporter">Reported by (optional)</label>
+                  <input id="r-reporter" type="text" placeholder="Field officer / resident" />
+                </div>
+              </fieldset>
+
+              <div id="form-errors" class="form-errors" role="alert" hidden></div>
+
+              <div class="row gap submit-row">
+                <button type="button" id="btn-review" class="primary-btn">Review report →</button>
+                <button type="reset" id="btn-reset-form" class="ghost-btn on-light">Reset form</button>
+              </div>
+              <p class="muted small">Reports marked <em>Demo</em> are bundled seed data. Your submissions are stored in this browser only.</p>
+            </form>
+
+            <div class="report-side">
+              <div class="card inner" id="review-card" hidden>
+                <div class="card-head"><h3>4 · Review &amp; submit</h3><p class="muted">Confirm before adding to the map.</p></div>
+                <div id="review-preview"></div>
+                <div class="row gap">
+                  <button type="button" id="btn-submit" class="primary-btn">Submit report</button>
+                  <button type="button" id="btn-cancel-review" class="ghost-btn on-light">Back to edit</button>
+                </div>
+              </div>
+
+              <div class="card inner">
+                <div class="card-head"><h3>Moderation queue</h3><p class="muted">A reviewer verifies before damage is treated as confirmed.</p></div>
+                <div class="row gap small-gap" id="queue-tabs" role="tablist" aria-label="Filter by status">
+                  <button type="button" class="tab-btn active" data-status="all">All</button>
+                  <button type="button" class="tab-btn" data-status="pending">Pending</button>
+                  <button type="button" class="tab-btn" data-status="verified">Verified</button>
+                  <button type="button" class="tab-btn" data-status="resolved">Resolved</button>
+                </div>
+                <div class="review-list" id="review-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head row-between">
+            <div>
+              <h3>Road-damage reports</h3>
+              <p class="muted" id="reports-summary"></p>
+            </div>
+            <div class="table-tools">
+              <label for="report-search" class="sr-only">Search reports</label>
+              <input id="report-search" type="search" placeholder="Search ID, type or location…" />
+              <label for="report-status-filter" class="sr-only">Filter reports by status</label>
+              <select id="report-status-filter">
+                <option value="all">All reports</option>
+                <option value="pending">Pending Review</option>
+                <option value="verified">Verified</option>
+                <option value="resolved">Resolved</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table" id="reports-table">
+              <thead>
+                <tr>
+                  <th scope="col">Photo</th>
+                  <th scope="col">Report ID</th>
+                  <th scope="col">Damage type</th>
+                  <th scope="col">Severity</th>
+                  <th scope="col">Location</th>
+                  <th scope="col">Reported</th>
+                  <th scope="col" class="num">Priority</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="reports-body"></tbody>
+            </table>
+          </div>
+          <p class="muted small" id="reports-foot">Duplicate reports near the same spot are grouped as one incident with repeat confirmations.</p>
+        </div>
+      </section>
+
+      <!-- ============ VIEW 4 — INSPECTION PRIORITIES ============ -->
+      <section class="view" id="view-priority" hidden>
+        <div class="card">
+          <div class="card-head">
+            <h3>Explainable inspection-priority engine</h3>
+            <p class="muted">
+              Priority Score = <b>0.40 × Damage severity</b> + <b>0.35 × Flood susceptibility</b> + <b>0.25 × Road importance</b>,
+              each normalised to 0–100. These are <em>prototype default weights</em>, not scientifically validated.
+              Missing inputs are handled explicitly and shown in each explanation.
+            </p>
+          </div>
+          <div class="weight-strip" id="weight-strip" aria-label="Factor weights"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head row-between">
+            <div>
+              <h3>Location inspection-priority table</h3>
+              <p class="muted">Ranked by priority score. Select a row for its explanation.</p>
+            </div>
+            <div class="table-tools">
+              <label for="priority-search" class="sr-only">Search locations</label>
+              <input id="priority-search" type="search" placeholder="Search location or ward…" />
+              <label for="priority-risk-filter" class="sr-only">Filter by risk</label>
+              <select id="priority-risk-filter">
+                <option value="all">All risk levels</option>
+                <option value="high">High only</option>
+                <option value="medium">Medium only</option>
+                <option value="low">Low only</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table" id="priority-table">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col" class="sortable" data-sort="name">Location</th>
+                  <th scope="col">Risk level</th>
+                  <th scope="col" class="sortable num" data-sort="riskScore">Flood score</th>
+                  <th scope="col" class="num">Damage</th>
+                  <th scope="col" class="num">Facilities</th>
+                  <th scope="col" class="sortable num" data-sort="priorityScore">Priority</th>
+                  <th scope="col"></th>
+                </tr>
+              </thead>
+              <tbody id="priority-body"></tbody>
+            </table>
+          </div>
+          <p class="muted small" id="priority-count"></p>
+        </div>
+
+        <div class="card" id="explain-panel">
+          <div class="card-head">
+            <h3>Explainability — why this location ranks here</h3>
+            <p class="muted">Select a row above, or a zone on the map. Factors are illustrative weighted inputs, not validated model outputs.</p>
+          </div>
+          <div id="explain-body" class="explain-body">
+            <p class="muted">No location selected yet. Choose a row in the table above or click a risk zone on the map.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW 5 — DATA QUALITY & METHODOLOGY ============ -->
+      <section class="view" id="view-dataquality" hidden>
+        <div class="card">
+          <div class="card-head"><h3>Methodology (summary)</h3></div>
+          <ol class="method-list">
+            <li><b>Zones.</b> The study area is divided into a simulated grid. Each zone has illustrative inputs (elevation, drainage index, impervious share, a historical flag).</li>
+            <li><b>Flood susceptibility score (0–100, simulated).</b> Rainfall (scenario), inverted elevation, drainage quality, impervious share and the historical flag are combined with fixed maximum points and capped at 100.</li>
+            <li><b>Damage severity (0–100).</b> Derived from confirmed road-damage reports near a zone, using each report's severity and duplicate confirmations. No confirmed reports → 0, shown as "no confirmed damage data".</li>
+            <li><b>Road importance (0–100).</b> Derived from real OpenStreetMap road classes near a zone (primary &gt; secondary &gt; tertiary).</li>
+            <li><b>Priority Score.</b> <code>0.40 × damage + 0.35 × flood + 0.25 × road importance</code>. Each term is labelled real, simulated or missing in every explanation.</li>
+          </ol>
+        </div>
+
+        <div class="dq-grid">
+          <div class="dq-card real">
+            <h3>Real data (with source)</h3>
+            <ul>
+              <li>Public-facility locations and road geometry/names: <strong>OpenStreetMap</strong> via the Overpass API (© OpenStreetMap contributors, ODbL).</li>
+              <li>Base map tiles: OpenStreetMap standard tiles.</li>
+              <li>Coordinates you pick on the map or share via GPS (only with consent) are real device coordinates.</li>
+            </ul>
+          </div>
+          <div class="dq-card sim">
+            <h3>Simulated / illustrative data</h3>
+            <ul>
+              <li><strong>Flood-risk zones and scores</strong> use a transparent illustrative formula — not observed or validated flood data.</li>
+              <li><strong>Rainfall intensities</strong> in the scenario selector are illustrative values for comparison only.</li>
+              <li><strong>Historical flood notes</strong> are sample narrative text, not a verified incident register.</li>
+              <li><strong>AI image severity</strong> is a simulated demonstration, not a trained vision model.</li>
+              <li>Bundled <em>Demo</em> road-damage reports are fabricated examples.</li>
+            </ul>
+          </div>
+          <div class="dq-card">
+            <h3>Report status &amp; verification</h3>
+            <ul>
+              <li>User-submitted reports start as <b>Pending Review</b> and are shown as unverified.</li>
+              <li>Only a reviewer can move them to <b>Verified</b> (counted as confirmed damage) or <b>Resolved</b>.</li>
+              <li>Pending reports do <em>not</em> count toward confirmed damage in the priority score.</li>
+            </ul>
+          </div>
+          <div class="dq-card">
+            <h3>Known limitations</h3>
+            <ul>
+              <li>No real elevation model; elevation is approximated from distance to a synthetic channel.</li>
+              <li>Facility and road coverage depends on OpenStreetMap completeness, which varies by area.</li>
+              <li>Scores are relative within a study area and should not be compared across cities.</li>
+              <li>If the network is unavailable, the app falls back to clearly-labelled simulated sample data.</li>
+              <li><b>Persistence:</b> submissions are saved in this browser's <code>localStorage</code> only — not on a server, and they do not sync across devices.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Confidence &amp; uncertainty indicators</h3></div>
+          <div class="dq-grid">
+            <div class="dq-card">
+              <h3>Coverage indicator</h3>
+              <p class="small muted">Every zone explanation shows how many real facility records informed it. Fewer than 3 nearby facilities → low coverage, flagged in the explanation.</p>
+            </div>
+            <div class="dq-card">
+              <h3>Missing-data handling</h3>
+              <p class="small muted">A zone with no confirmed damage reports is shown as "no confirmed damage data" and the damage term contributes 0 — it is never invented.</p>
+            </div>
+            <div class="dq-card">
+              <h3>Simulated AI</h3>
+              <p class="small muted">The demo assessment outputs a severity and a confidence range, explicitly labelled as a brightness/texture heuristic, not a model.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="disclaimer-block">
+          <h3>Validation needed before operational use</h3>
+          <p>Moving beyond this prototype would require: a real elevation/terrain model, calibrated drainage data, observed rainfall and waterlogging records, an independently labelled damage dataset to train and validate any computer-vision model, field verification of reports, and formal agreement with the responsible municipal and disaster-management authorities.</p>
+        </div>
+
+        <div class="disclaimer-block">
+          <h3>Full disclaimer</h3>
+          <p>FloodLens AI is a <strong>decision-support demonstration and prototype</strong>. It is <strong>not an operational flood-warning system</strong>. It does not forecast flooding, does not issue alerts, and must not be used for evacuation, emergency response, or safety-critical decisions. All risk scores, rainfall scenarios, historical notes, road-damage severities and AI assessments are illustrative unless explicitly attributed to OpenStreetMap. Simulated values are never presented as real observations or as validated AI predictions. Always consult official meteorological, hydrological and municipal authorities.</p>
+        </div>
+      </section>
+
+      <footer class="app-footer">
+        <p>FloodLens AI — prototype. Supports UN <strong>SDG 11, Target 11.5</strong> and <strong>SDG 13, Target 13.1</strong>. Map data © OpenStreetMap contributors. Static demo; no accounts, no payments, no server.</p>
+      </footer>
+    </main>
+  </div>
+</div>
+
+<!-- ===================== MODALS / OVERLAYS ===================== -->
+<div class="modal-backdrop" id="modal-disclaimer" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="md-h">
+    <h2 id="md-h">Disclaimer &amp; limits</h2>
+    <p>FloodLens AI is a <strong>decision-support demonstration</strong>. It is <strong>not an operational flood-warning system</strong>.</p>
+    <p>Risk scores, rainfall scenarios, historical notes, image severities and AI assessments are illustrative or simulated. Simulated values are never described as real observations or validated AI predictions. Only OpenStreetMap-derived data, and coordinates you explicitly provide, are real.</p>
+    <p>Reports are stored in this browser only (localStorage) and are not written to a server.</p>
+    <p>Do not use this prototype for emergency, evacuation or life-safety decisions.</p>
+    <button class="primary-btn" id="md-close" type="button">I understand</button>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<div class="pick-banner" id="pick-banner" hidden>
+  <span>Click the map to set the report location</span>
+  <button class="ghost-btn" id="pick-cancel" type="button">Cancel</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="sample-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
